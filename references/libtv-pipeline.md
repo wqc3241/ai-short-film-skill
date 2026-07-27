@@ -37,14 +37,18 @@ done
 # 角色配音（逐句；节点名 = S<镜号>·白-<角色>-<序号>）
 libtv node create "S03·白-林悦-1" -t audio --prompt "<台词>（<语气，来自§5/§17>）" \
   --set "model=Eleven V3" --set voice=<ID> --set stability=0.5 --run
-# 环境音/音效（Seed Audio 1.0：人声/音效/音乐一体化，方案§14 提示词）
-libtv node create "S03·环境-雨夜街道" -t audio --prompt "<§14提示词>" \
-  --set "model=Seed Audio 1.0" --run
-# BGM（生成前把 §15 提示词读给用户确认）
-libtv node create "全片·BGM-开场" -t audio --prompt "<§15提示词>" \
-  --set "model=Mureka V8" --set instrumental=1 --run
+# BGM（提示词 ≤450 字符；Mureka 声明上限 1024，1500 字符会失败）
+libtv node create "全片·BGM" -t audio --prompt "<§15提示词,精简版>" \
+  --set "model=Mureka V8" --set scene=Music --set instrumental=1 --run
 ```
-坑：部分 TTS 模型时长参数是**毫秒**（`music_length_ms`）；`-s` 具体键以 `libtv model <key>` 实查为准。全部音频 `libtv download` 存 `assets/audio/` 备 P8 本地混音用。
+
+**环境音不在这里生成**——写进 §17 每镜的【音效】行，由视频模型 `enableSound=on` 连画面一起出，音画天然同步且省一轮生成。只有当成片听感确实缺层次时，才在 P8 用 Seed Audio 1.0 补做叠加。
+
+坑：
+- **Mureka 必须 `--set scene=Music`**，否则报「音频新建节点默认场景为 Text-to-Speech，与所选模型 catalog 场景不一致」
+- **Mureka 没有时长参数**，会出 2–3 分钟完整曲。P8 按能量包络选段：`ffmpeg -f s16le` 导出 PCM → numpy 算每 0.25s RMS → 找「起始最安静、末段最强」的窗口
+- 日语等非中英语种：Seed Audio `language` 枚举**只有 zh/en**；Minimax speech 实测能念日语但音色库 CLI 不可枚举（只有中文默认音色）。**外语独白优先走视频模型自带语音**（写进 §17 音效行），实测效果好过 TTS
+- 部分 TTS 模型时长参数是**毫秒**（`music_length_ms`）；`-s` 具体键以 `libtv model <key>` 实查为准
 
 ## P5. 剧本 → 分镜图组
 
@@ -57,35 +61,52 @@ rows 每行来自方案 §11/§17：`durationSeconds`（≤15）、`plotDescript
 
 ## P6. 逐镜视频生成
 
-每镜（含拆段子镜）循环，节点名 `S<镜号>·镜`：
+**先实查模型名**：`libtv model search --type video`。文档里的名字会过期——实测「Seedance 2.0」已不存在，真名是 **`Seedance 2.0 VIP`**（`-s model=` 只接受 modelName，传 modelKey 报错）。
+
+每个**镜头**（§11 三层结构里的生成单元）循环，节点名 `<前缀>·S<镜号>·镜`：
 
 ```bash
-libtv node create "S03·镜" -t video \
-  --prompt "<§16统一风格>；<§17本镜卡：场景细节/情感/主体/运镜/镜头型号/焦距>；负向：无背景音乐、无字幕、无水印、无文字" \
-  --set "model=Seedance 2.0" --set modeType=mixed2video \
-  --set ratio=<比例> --set resolution=720p --set duration=<秒> --set enableSound=<on|off按P1配音机制> \
-  --left "S03-分镜图" --left "林悦-定妆三视图" --left "<场景>-正" --left "S03·白-林悦-1" --run
+libtv node create "HKD·S02·镜" -t video \
+  --prompt "<§17 该镜的中文分区关键词卡，整卡原样贴进来>" \
+  --set "model=Seedance 2.0 VIP" --set modeType=mixed2video \
+  --set ratio=<比例> --set resolution=720p --set duration=<4-15整数秒> --set enableSound=on \
+  --left "<场景图>" --left "<角色定妆三视图>" --left "<道具图>" --run
 ```
-- 配音机制 A（TTS 喂入）：台词音频节点一并 `--left`（mixed2video 音频上限 3），enableSound=on 让模型对口型出人声。机制 B：不挂音频，台词写进提示词。
-- `--left` 总数受 `modeType.items` 上限（mixed2video 图9/视频3/音频3），超了 CLI 直接拒。
-- **质检**（每镜生成完立即）：`libtv download -n "S03·镜" -o build/qc/` → 抽首中尾 3 帧 Read：画面完整？角色与定妆图一致？无字幕无水印？时长 `ffprobe` 核对。失败 → 修改提示词（写明具体病灶）重试，≤2 次，仍败记 state.md 继续下一镜。
+
+- **提示词直接用 §17 的中文卡，不要翻译不要压缩**。Seedance 声明 `maxLength: 0`（**无长度上限**）——这次误以为它和 Mureka 一样有 1024 上限，把 GPT 写好的提示词整条丢弃重写，白费一轮
+- **`enableSound=on` 承担全部环境音与外语独白**：音效关键词和独白秒段都在 §17 的【音效】行里
+- `--left` 数量受 `modeType.items` 上限（mixed2video 图9/视频3/音频3），超了 CLI 直接拒
+- **`duration` 只接受 4–15 整数秒**。<4s 的镜头不要单独生成（按 4s 计费再裁，浪费），改用 §17 的【切镜】行并入同一次生成
+- **质检**（每镜生成完立即）：`libtv download -n "<节点>" --without-ai-watermark --vip -o shots/` → contact_sheet 抽 8 帧 Read。查：画面完整？角色与定妆图一致？**背景有无该有的人流车流**？无字幕无水印？时长 `ffprobe` 核对。缩略图上易误判的小道具要**放大裁切**再看（实测：手持旧照片在缩略图上像手机，放大后是白边照片）。失败 → 提示词写明具体病灶重试，≤2 次，仍败记 state.md
+- **去水印必须 `--without-ai-watermark` 加 `--vip` 两个都给**，只给前者成片仍带 LibTV 水印
 
 **长镜头拆段（首尾帧衔接）**：
 ```bash
 libtv download -n "S07a·镜" -o build/ && scripts/extract_last_frame.sh build/S07a*.mp4 build/S07a-tail.png
 libtv upload "S07a-尾帧" -f build/S07a-tail.png -t image
 libtv node create "S07b·镜" -t video --prompt "<延续S07a动作的描述>…" \
-  --set "model=Seedance 2.0" --set modeType=frames2video --set ratio=… --set resolution=720p \
+  --set "model=Seedance 2.0 VIP" --set modeType=frames2video --set ratio=… --set resolution=720p \
   --left "S07a-尾帧" --run          # frames2video 挂1图=首帧；挂2图=首帧+尾帧
 ```
 首尾帧槽位按边序分配（先 left 的为首帧）——首次使用时先用两张差异明显的图做一次 4s 便宜验证，确认槽位顺序再批量用。衔接质检：S07a 尾帧 vs S07b 首帧并排 Read，跳变即重生成 S07b。
 
 ## P6b/P7. 终剪与配乐
 
+**首选本地 ffmpeg 拼接，不用画布终剪**：四段素材质检时已下载到本地，各段参数天然一致（同模型同分辨率同帧率），`-c copy` 无损直拼，零积分零画质损失，且顺序完全可控。
+```bash
+for f in shots/S01.mp4 shots/S02.mp4 …; do echo "file '$PWD/$f'" >> list.txt; done
+ffmpeg -f concat -safe 0 -i list.txt -c copy build/终剪-无乐版.mp4
+```
+拼接前 `ffprobe` 核对四段的 codec/分辨率/帧率/音频采样率是否一致；不一致才重编码。
+
+**§17 写了【转场】的镜，这一步必须真正执行对应转场**（叠化/色彩匹配剪辑），不能一律硬切——否则提示词里为转场做的构图准备（如"让黄色车身色块靠近右缘"）全部白做。这是本次实测漏掉的一环。
+
+画布终剪仅在需要给用户在画布里预览时才做：
 ```bash
 { libtv node "S01·镜"; libtv node "S02·镜"; …; } | libtv node create "终剪" -t video-clip >/dev/null
-libtv node "终剪" --run    # 无 clipTimelineData 时按边序首尾拼接——P6 编排检查用这条
+libtv node "终剪" --run    # 无 clipTimelineData 时按边序拼接，边序不保证=镜号序！
 ```
+坑：**边序是乱的**，必须写显式 `clipTimelineData` 锁顺序；且 `--run` 的结果 URL 只在 stdout 出现一次，`libtv download` 对 video-clip 节点常报「没有可下载的资源」——**别用 `tail` 截断 `--run` 输出**，否则 URL 丢失只能重跑。
 P7 配乐：接入 BGM/环境音节点后写显式时间线（**天花板：1 视频轨+1 音频轨、静态音量、无淡入淡出无闪避**——只求画布可预览，精修在 P8）：
 ```bash
 libtv node "终剪" --left-add "全片·BGM-开场"
@@ -97,6 +118,6 @@ libtv node "终剪" --run
 ## P8 入口. 下载成片
 
 ```bash
-libtv download -n "终剪" --without-ai-watermark -o final/
+libtv download -n "终剪" --without-ai-watermark --vip -o final/   # 两个标志都要给，否则带水印
 ```
 分组批量下载出 ZIP（`-n` 传分组节点 id + `-g`）。下载后 `ffprobe` 核对时长与分辨率再进后期。
