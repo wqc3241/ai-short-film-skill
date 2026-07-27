@@ -88,6 +88,13 @@ Mureka 无时长参数会出 2–3 分钟完整曲 → 按能量包络选段（�
 
 ### P8. 本地精修交付
 **询问用户**：是否加字幕（中/外双语？）？片头片尾要什么样式？→ 按需执行：`scripts/burn_subs_and_cards.sh`（字幕/片头/片尾）→ SendUserFile 交付，同时保留一份无字幕版。片尾标题日系片建议明朝体+宽字距，位置避开主体动作区。
+
+**要发小红书/抖音就顺手出双封面**（抖音有横竖两个独立封面槽，缺一个会挂「横/竖双封面缺失」，且信息流露出的是竖封面）：
+```bash
+python3 ~/.claude/skills/publish-xhs-douyin/scripts/make_covers.py --video final/<无字幕版>.mp4 \
+  --t <秒> --title "<片名>" --sub "<副标>" --tag "<小标签>" --outdir final/
+```
+`--t` 选**片尾标题淡入之前**的一帧（否则片中标题与封面标题重复），且优先选有故事张力的一帧而非空镜。
 → references/post-production.md（字幕文件生成、片头片尾卡制作、参数细节）
 
 ## Engine scripts (scripts/)
