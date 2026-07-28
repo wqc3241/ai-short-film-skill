@@ -35,3 +35,21 @@ scripts/burn_subs_and_cards.sh final/成片.mp4 final/成片-终.mp4 \
 ## 4. 交付
 
 终版命名 `final/<片名>.mp4`。`contact_sheet.py video final/<片名>.mp4 12` 末检一遍（字幕无错字、片头片尾正常、无坏帧）→ SendUserFile 交付，caption 注明：本片总时长、需要复听/复看的点（如某镜是重试后的最佳版本）、以及 manifest 里仍标记失败的镜（若有）。更新 `state.md` 为已交付，画布 URL 一并附上供用户回溯。
+
+## 5. 剪辑修订工具箱（星火预告片教训，2026-07）
+
+**concat 拼接**：清单里一律绝对路径——`-f concat` 的相对路径按**清单文件所在目录**解析，不是 cwd。重编码修订段与原生段混拼：相同 codec/profile/pix_fmt/fps/采样率即可 `-c copy`（如 `libx264 -profile:v high -pix_fmt yuv420p -r 24 -c:a aac -ar 44100`）。
+
+**镜内剪帧**（删坏帧/砍半段）：trim+concat 单命令搞定，帧级精确（24fps 下按 1/24 对齐剪点）：
+```bash
+ffmpeg -i in.mp4 -filter_complex "[0:v]trim=0:3.4167,setpts=PTS-STARTPTS[v1];[0:v]trim=4.5:8.081,setpts=PTS-STARTPTS[v2];[0:a]atrim=0:3.4167,asetpts=PTS-STARTPTS[a1];[0:a]atrim=4.5:8.081,asetpts=PTS-STARTPTS[a2];[v1][a1][v2][a2]concat=n=2:v=1:a=1[v][a]" -map "[v]" -map "[a]" <编码参数> out.mp4
+```
+剪点先做密集抽帧扫描定位（`fps=6..8` 出 tile 图逐帧看），涉及"物体状态反转"（如插入→拔出）要全分辨率单帧确认。
+
+**慢放**：`setpts=(PTS-STARTPTS)*2` 后接 `minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` 真补帧（帧复制会顿）；**声音不跟慢**——用原速环境音接续到段尾（可从源音轨取更早的等长段补满），配 afade 渐弱。渐暗收尾：`fade=t=out` 作用于慢放段。
+
+**标题压画面**：本机 ffmpeg 无 fontconfig，`drawtext` 直接报错——用 PIL 渲透明 PNG 再 `-loop 1 -i title.png` overlay（alpha fade：`format=argb,fade=t=in:st=..:alpha=1`）。笔刷 logo 风（CP2077 类）本机无现成字体，SignPainter 底 + 大角度斜切 + 逐行随机位移毛边 + 随机细横线擦痕 + 金色渐变 + 深色错位投影可达近似；更像需用户批准下载字体或用户提供 ttf。
+
+**验证习惯**：改完音轨跑一遍 whisper 反扫成片核对台词落点；但 tiny 模型会在 BGM 上幻听人声、长段时间戳松——疑似新对白先对该单镜干净音轨单独验证再处理。
+
+**zsh 两坑**：空目录 glob（`rm -rf dir/*`）直接报错断掉 `&&` 链——用 `rm -rf dir && mkdir dir`；`$VAR` 存放多个参数不会自动分词——参数内联或 `${=VAR}`。

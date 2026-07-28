@@ -37,16 +37,18 @@ done
 # 角色配音（逐句；节点名 = S<镜号>·白-<角色>-<序号>）
 libtv node create "S03·白-林悦-1" -t audio --prompt "<台词>（<语气，来自§5/§17>）" \
   --set "model=Eleven V3" --set voice=<ID> --set stability=0.5 --run
-# BGM（提示词 ≤450 字符；Mureka 声明上限 1024，1500 字符会失败）
-libtv node create "全片·BGM" -t audio --prompt "<§15提示词,精简版>" \
+# BGM：按 §15 配乐结构逐段生成，一段一首一节点；提示词用 §15 该段原文
+#（≤450 字符；Mureka 声明上限 1024，1500 字符会失败；超长压缩时保留风格/乐器/情绪/节奏词）
+libtv node create "BGM·第一幕" -t audio --prompt "<§15该段提示词原文>" \
   --set "model=Mureka V8" --set scene=Music --set instrumental=1 --run
+# …§15 有几段就建几个节点（BGM·第二幕、BGM·尾声…），不要一首打全片
 ```
 
 **环境音不在这里生成**——写进 §17 每镜的【音效】行，由视频模型 `enableSound=on` 连画面一起出，音画天然同步且省一轮生成。只有当成片听感确实缺层次时，才在 P8 用 Seed Audio 1.0 补做叠加。
 
 坑：
 - **Mureka 必须 `--set scene=Music`**，否则报「音频新建节点默认场景为 Text-to-Speech，与所选模型 catalog 场景不一致」
-- **Mureka 没有时长参数**，会出 2–3 分钟完整曲。P8 按能量包络选段：`ffmpeg -f s16le` 导出 PCM → numpy 算每 0.25s RMS → 找「起始最安静、末段最强」的窗口
+- **Mureka 没有时长参数**，会出 2–3 分钟完整曲。P7 逐段选窗：`ffmpeg -f s16le` 导出 PCM → numpy 算每 0.25s RMS → **按 §15 该段的音乐意图与能量曲线定选窗目标**（「起静尾强」只是常见一种），无乐段留白、进出方式照 §15 执行
 - 日语等非中英语种：Seed Audio `language` 枚举**只有 zh/en**；Minimax speech 实测能念日语但音色库 CLI 不可枚举（只有中文默认音色）。**外语独白优先走视频模型自带语音**（写进 §17 音效行），实测效果好过 TTS
 - 部分 TTS 模型时长参数是**毫秒**（`music_length_ms`）；`-s` 具体键以 `libtv model <key>` 实查为准
 
@@ -121,3 +123,20 @@ libtv node "终剪" --run
 libtv download -n "终剪" --without-ai-watermark --vip -o final/   # 两个标志都要给，否则带水印
 ```
 分组批量下载出 ZIP（`-n` 传分组节点 id + `-g`）。下载后 `ffprobe` 核对时长与分辨率再进后期。
+
+## P6 实战附录（星火预告片教训，2026-07）
+
+**modeType 三态**（错一个就白跑或回滚）：
+| 用途 | modeType | 备注 |
+|---|---|---|
+| 多参考图+{{Node}}绑定生视频 | `mixed2video` | 全能参考：图≤9/视频≤3/音频≤3；image2video 不认 mention 绑定语义 |
+| 参考图生图（General image Pro） | `image2image` | 缺了则入边校验失败且节点回滚 |
+| 单首帧生视频 | `image2video` | 仅单图驱动时用 |
+
+**Seedance 真人合规检测**：`autoCompliance=1` 时提交前逐张校验参考图。未注册图三种结局：检测通过→签发 assetId；未检出真人→写 `compliantExempt` 豁免；判"疑似真人"→整次提交中止，报「请前往素材库完成合规资产录入」。**最易中招：写实风格的人物特写/街拍构图**（生成图也会中）。CLI 无录入命令，出路：①用户网页端 素材库→合规资产录入 后原样重跑；②经批准摘除该参考改纯文字（实测构图成立），摘除三处同步：prompt 的 {{Node}} 引用、refs 清单、画布边 `--left-rm "<节点名>"`。重试前先等几分钟——首次提交可能已触发异步登记（星火实测等了也没用，但成本为零值得一试）。
+
+**角色参考外溢**：绑定为主体的角色图会污染群演长相（G11 路人撞脸 Woss）。凡镜头里有无名群演，【群演】行加"与任何主角长相无关"。
+
+**版本管理与批次纪律**（SKILL.md 硬规则 13/14 的操作细节）：重生成新建 `GXX·视频vN` 节点（`node create` 全参数版脚本，如 run_group_v3.sh 模式），本地入 `shots/videos-vN/`；QC 下载先落 `/tmp/libtv-dl/` 再 `mv` 改名入库。用户在 UI 手动接管后节点名会变（重命名/加 pass 后缀/新增剪辑节点），任何脚本动作前 `libtv node list` 重扫，不要写死节点名。
+
+**并发提交**：多组视频可各自 `run_in_background` 后台跑，但**节点创建/连边阶段错峰 60s** 串行，避免画布并发写冲突。
