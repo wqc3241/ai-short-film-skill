@@ -4,7 +4,7 @@ A [Claude Code](https://claude.com/claude-code) skill that runs an end-to-end AI
 
 从一句主题到可交付成片的完整流水线：
 
-- **制作方案与图片素材** — 在用户自己的 Web ChatGPT 里生成（17 板块制作方案模板、角色三视图/表情/服装/场景四方向/道具，全链一致性锚定）
+- **制作方案与图片素材** — 在用户自己的 Web ChatGPT 里生成（15 板块制作方案模板、全流程中文提示词、角色三视图/表情/服装/场景/道具/分镜首帧，全链一致性锚定）
 - **音频 / 分镜图 / 分镜视频 / 终剪** — 通过 [LibTV](https://www.liblib.tv) 官方 CLI（`libtv`）在画布上完成：TTS 配音、Seed Audio 环境音、Mureka V8 配乐、`script storyboard` 分镜图组、Seedance 2.0 逐镜视频（含长镜头首尾帧拆段衔接）、video-clip 终剪
 - **本地后期** — ffmpeg 三轨混音（BGM 对白闪避）、字幕烧录（PIL+overlay，不依赖 libass）、片头片尾卡、交付
 
@@ -33,7 +33,7 @@ P0 前置检查 → P1 立项(Gate 0: 比例/时长/配音机制/模型确认) �
 
 ```
 SKILL.md                                # 工作流 + 硬规则 + 检查闸门
-references/production-plan-template.md  # 制作方案 17 板块模板 + ChatGPT 提问脚手架
+references/production-plan-template.md  # 制作方案 15 板块模板（§17 即梦官方四段式）+ ChatGPT 提问脚手架
 references/chatgpt-assets.md            # Web GPT 驱动规程与素材一致性链
 references/libtv-pipeline.md            # LibTV 全链路命令参考
 references/post-production.md           # 本地混音/字幕/片头片尾/交付
